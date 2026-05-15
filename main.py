@@ -1,9 +1,12 @@
 import requests
 
+import networkx as nx
+
 from pyvis.network import Network
 from bs4 import BeautifulSoup
 from fake_useragent import UserAgent
 from urllib.parse import urlparse
+
 
 
 
@@ -91,7 +94,7 @@ def create_and_connect_graph(G, label, url, connect_to):
     new_id = len(G.nodes)+1
     G.add_node(new_id, label=label, url=url)
 
-    G.add_edge(new_id, connect_to)
+    G.add_edge(connect_to, new_id)
 
 
     return new_id
@@ -114,20 +117,78 @@ def export_graph(id_tracking, edges, nodes, filename):
     print("exported_graph")
 
 
+def export_nx_graph(nx_G, id_tracking, filename):
+    import pickle
+
+    to_save = {
+        "id_tracking": id_tracking,
+        "G" : nx_G,
+    }
+
+    with open(filename, 'wb') as gef:
+        a = pickle.dump(to_save,gef)
 
 
-if __name__ == '__main__':
+    print("exported_graph")
+    
 
-    url_extraction_count = 15
-    max_depth = 50
-    do_export_graph = True
 
+
+def get_id_from_keyword(id_tracking, keyword):
+    for k,v in id_tracking.items():
+        if keyword in k:
+            return v
+
+def get_n_hop_neighbor(keyword, G,n, id_tracking):
+
+    root_id = get_id_from_keyword(id_tracking, keyword)
+
+    n_hop_neighbor = {0 : [G.nodes[root_id]['url']]}
+
+    seen = {G.nodes[root_id]['url']:True}
+
+    neighbor_id_track = []
+    neighbor_neighbor_id_track = list(G.neighbors(root_id))
+
+    for i in range(n):
+        # print(i)
+        neighbor_id_track = neighbor_neighbor_id_track
+        neighbor_neighbor_id_track = []
+        n_hop_neighbor[i+1] = []
+
+        for x in neighbor_id_track:
+            url = G.nodes[x]['url']
+            if seen.get(url,False):
+                continue
+
+
+            seen[url] = True
+            n_hop_neighbor[i+1].append(url)
+
+            neighbor_neighbor_id_track += list(G.neighbors(x))
+            # print(neighbor_neighbor_id_track)
+        
+
+
+    return n_hop_neighbor
+
+
+
+def do_extraction(root_url,max_depth=5, page_url_extraction_count=5, do_export_graph=True):
+
+    url_extraction_count = page_url_extraction_count
+    max_depth = max_depth
+    do_export_graph = do_export_graph
+
+
+    
     # load_graph = False
 
     id_tracking = {}
-    root_url = 'https://en.wikipedia.org/wiki/Indonesia'
+    root_url = root_url
     
-    G = Network('80vh', '80vw')
+    # G = Network('80vh', '80vw')
+    G = nx.DiGraph()
 
     # if load_graph:
     #     import pickle
@@ -137,6 +198,7 @@ if __name__ == '__main__':
 
     root_node_id = 1
     G.add_node(root_node_id, label=root_url, url=root_url)
+    print(G._node[1])
     id_tracking[root_url] = root_node_id
 
     root_link_list = get_all_links(url_extraction_count, req_get(root_url), root_url)
@@ -152,16 +214,17 @@ if __name__ == '__main__':
 
         id_tracking[crawled_link] = new_id
 
-    idx_node_now = 0
+    idx_node_now = 1
     while True:
         print(idx_node_now)
         try:
-            curr_node = G.nodes[idx_node_now]
+            curr_node = G._node[idx_node_now]
         except IndexError:
             break
 
 
-        curr_node_id = curr_node["id"]
+        # curr_node_id = curr_node["id"]
+        curr_node_id = idx_node_now
         curr_node_url = curr_node['url']
 
         link_list = get_all_links(url_extraction_count, req_get(curr_node_url), curr_node_url)
@@ -187,9 +250,10 @@ if __name__ == '__main__':
         if idx_node_now == max_depth:
             break
 
-
+    pyvis_G = Network(directed=True)
+    pyvis_G.from_nx(G)
     # G.set_edge_smooth('continuous')
-    G.barnes_hut(
+    pyvis_G.barnes_hut(
         gravity=-15000,           # Much stronger repulsion (pushed nodes further apart)
         central_gravity=0.1,      # Lower central pull to allow the graph to expand
         spring_length=400,        # Longer edges to create more "dead space"
@@ -197,7 +261,7 @@ if __name__ == '__main__':
         damping=0.9               # High damping to settle the movement quickly
     )
 
-    G.set_options("""
+    pyvis_G.set_options("""
     {
         "nodes": {
             "font" : {
@@ -224,17 +288,23 @@ if __name__ == '__main__':
     # G.toggle_smoothing(False)
 
     if do_export_graph:
-        export_graph(id_tracking, G.edges, G.nodes, 'exported_graph.pkl')
+        export_graph(id_tracking, pyvis_G.edges, pyvis_G.nodes, 'exported_graph.pkl')
+        export_nx_graph(G, id_tracking, "nx_graph.pkl")
 
 
-    print(id_tracking)
-    G.show('nx.html',notebook=False)
+    # print(id_tracking)
+    pyvis_G.show('nx.html',notebook=False)
 
 
-        
+    return G, pyvis_G, id_tracking
+
+    
 
 
+if __name__ == '__main__':
+    nx_graph, _, id_tracking = do_extraction('https://en.wikipedia.org/wiki/Java',10,20,True)
 
-
-        
-    # G.show('nx.html',notebook=False)
+    a = get_n_hop_neighbor("Java",nx_graph,2,id_tracking)
+    for i,v in a.items():
+        print(f"{i} hop", v)
+        print()
